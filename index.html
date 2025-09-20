@@ -1,0 +1,173 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Bus Tracker</title>
+    
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet.js for the interactive map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    
+    <!-- Custom Styles -->
+    <style>
+        /* Use the Inter font, a clean sans-serif font */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        /* Ensure the map container fills the screen */
+        #map {
+            height: 100vh;
+            width: 100vw;
+        }
+        /* Style for the bottom sheet/drawer */
+        .bottom-sheet {
+            transition: transform 0.3s ease-in-out;
+        }
+    </style>
+</head>
+<body class="overflow-hidden">
+
+    <!-- The map container will be rendered here by Leaflet.js -->
+    <div id="map"></div>
+
+    <!-- Bottom Sheet for Bus Information -->
+    <div id="bottomSheet" class="bottom-sheet fixed bottom-0 left-0 right-0 z-[1000] bg-white rounded-t-2xl shadow-2xl p-4 md:p-6 transform translate-y-0">
+        <div class="max-w-4xl mx-auto">
+            <!-- Header with Route and Status -->
+            <div class="flex justify-between items-center mb-4">
+                <div class="flex items-center space-x-3">
+                    <div class="bg-indigo-100 text-indigo-600 p-2 rounded-lg">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6"><path d="M10 21.122a1 1 0 0 1-.512-.158L2.5 16.29a1 1 0 0 1-.488-.87V6.58a1 1 0 0 1 .5-1.732l7-4a1 1 0 0 1 1 0l7 4a1 1 0 0 1 .5 1.732V15.42a1 1 0 0 1-.488.87l-7 4.672a1 1 0 0 1-.488.13Z"/><path d="M10 2v19.122"/><path d="m17 6-7 4-7-4"/><path d="m10 12 7-4"/></svg>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold text-gray-800">Route 42: Anand Vihar</h1>
+                        <p id="busStatus" class="text-sm font-medium text-green-600">On Time</p>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <p class="text-gray-500 text-sm">ETA</p>
+                    <p id="busEta" class="text-2xl font-bold text-indigo-600">-- min</p>
+                </div>
+            </div>
+
+            <!-- Progress Bar for the route -->
+            <div class="space-y-2">
+                 <div class="flex justify-between text-xs font-medium text-gray-500">
+                    <span>Ghaziabad Bus Stand</span>
+                    <span>Anand Vihar ISBT</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2.5">
+                    <div id="progressBar" class="bg-indigo-600 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        // --- 1. INITIALIZATION ---
+        // Set the map's initial center to Ghaziabad, India
+        const initialCenter = [28.6692, 77.4538];
+        const map = L.map('map').setView(initialCenter, 13);
+        let busMarker = null;
+
+        // Add a tile layer from OpenStreetMap
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        }).addTo(map);
+
+        // --- 2. DEFINE THE ROUTE & ICONS ---
+        // A predefined bus route from Ghaziabad towards Anand Vihar.
+        // In a real app, this would come from an API.
+        const routeCoordinates = [
+            [28.6692, 77.4538], // Ghaziabad
+            [28.665, 77.445],
+            [28.660, 77.420],
+            [28.655, 77.400],
+            [28.660, 77.380],
+            [28.665, 77.350],
+            [28.660, 77.320], // Near Anand Vihar
+            [28.655, 77.310],
+            [28.651, 77.300]
+        ];
+
+        // Draw the route line on the map
+        const routePolyline = L.polyline(routeCoordinates, { color: 'rgba(79, 70, 229, 0.6)', weight: 5 }).addTo(map);
+        map.fitBounds(routePolyline.getBounds().pad(0.1)); // Zoom map to fit the route
+
+        // Create a custom bus icon using inline SVG
+        const busIcon = L.divIcon({
+            html: `<div class="relative flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="38" height="38" viewBox="0 0 24 24" fill="#4f46e5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="drop-shadow-lg"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-1.1-.9-2-2-2H8c-1.1 0-2 .9-2 2v3c0 .6.4 1 1 1h2"/><path d="M19 17H5c-1.1 0-2-1-2-2.2V6.2C3 5 4.1 4 5.2 4h13.6C19.9 4 21 5 21 6.2v8.6c0 1.2-1.1 2.2-2.2 2.2Z"/><path d="M5 17v2"/><path d="M19 17v2"/><circle cx="7" cy="11" r="1"/><circle cx="17" cy="11" r="1"/></svg>
+                   </div>`,
+            className: '',
+            iconSize: [38, 38],
+            iconAnchor: [19, 19]
+        });
+
+        // --- 3. MOCK REAL-TIME DATA (BUS SIMULATOR) ---
+        // This part simulates the backend from your workflow diagram.
+        // It pretends to be a bus sending its location every few seconds.
+        let routeIndex = 0;
+        const totalSteps = routeCoordinates.length - 1;
+
+        const busSimulator = setInterval(() => {
+            // Get the current location from the predefined route
+            const currentLocation = routeCoordinates[routeIndex];
+            
+            // Calculate a mock ETA (decreases as the bus moves)
+            const remainingSteps = totalSteps - routeIndex;
+            const eta = remainingSteps * 2; // e.g., 2 minutes per step
+
+            // Create the data payload, just like the backend would
+            const busData = {
+                lat: currentLocation[0],
+                lng: currentLocation[1],
+                eta: eta,
+                status: 'On Time',
+                progress: (routeIndex / totalSteps) * 100
+            };
+
+            // "Emit" the data to our update function
+            updateBusOnMap(busData);
+
+            // Move to the next point on the route
+            routeIndex++;
+            if (routeIndex >= routeCoordinates.length) {
+                routeIndex = 0; // Loop back to the start
+            }
+        }, 3000); // Update every 3 seconds
+
+        // --- 4. UPDATE UI FUNCTION ---
+        // This function is the "listener" from your User Experience Flow.
+        // It takes the data and updates the map and the info panel.
+        function updateBusOnMap(data) {
+            const { lat, lng, eta, status, progress } = data;
+
+            // If the marker doesn't exist, create it. Otherwise, move it.
+            if (!busMarker) {
+                busMarker = L.marker([lat, lng], { icon: busIcon }).addTo(map);
+            } else {
+                busMarker.setLatLng([lat, lng]);
+            }
+            
+            // Pan the map to keep the bus in view
+            map.panTo([lat, lng], { animate: true, duration: 1.0 });
+
+            // Update the information in the bottom sheet
+            document.getElementById('busEta').innerText = `${eta} min`;
+            document.getElementById('busStatus').innerText = status;
+            document.getElementById('progressBar').style.width = `${progress}%`;
+        }
+    </script>
+</body>
+</html>
